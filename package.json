@@ -3,7 +3,11 @@
   "version": "0.1.0",
   "description": "AI-agnostic local memory layer for codebases. Index once, remember forever, switch AI freely.",
   "type": "module",
-  "author": "",
+  "author": {
+    "name": "Abhishek Kumar",
+    "email": "abhi115200@gmail.com",
+    "url": "https://github.com/mrAbhishek1105"
+  },
   "license": "MIT",
   "keywords": [
     "ai",
@@ -22,7 +26,14 @@
   ],
   "repository": {
     "type": "git",
-    "url": ""
+    "url": "https://github.com/mrAbhishek1105/Codemem.git"
+  },
+  "homepage": "https://github.com/mrAbhishek1105/Codemem#readme",
+  "bugs": {
+    "url": "https://github.com/mrAbhishek1105/Codemem/issues"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "bin": {
     "codemem": "./dist/index.js"
