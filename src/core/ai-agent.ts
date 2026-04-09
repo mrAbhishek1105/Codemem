@@ -13,6 +13,7 @@
  */
 
 import { logger } from '../utils/logger.js';
+import { QueryResult } from '../types/query.js';
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
@@ -273,6 +274,27 @@ export async function callAI(
   }
 }
 
+export async function searchCodebaseTool(
+  query: string,
+  port = 8432,
+  top_k = 6,
+): Promise<QueryResult> {
+  const res = await fetch(`http://localhost:${port}/api/v1/query`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query, options: { top_k } }),
+    signal: AbortSignal.timeout(15000),
+  });
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`search_codebase failed (${res.status}): ${body}`);
+  }
+
+  const data = await res.json() as QueryResult;
+  return data;
+}
+
 // ─── Agentic loop (Mode B) ────────────────────────────────────────────────────
 
 export type ToolExecutor = (
@@ -354,4 +376,109 @@ RULES:
 - Reference exact file paths and function names found in search results.
 - When suggesting code changes, show the full modified function/block.
 - Be concise but complete. No filler text.`;
+}
+
+// ─── Streaming API ────────────────────────────────────────────────────────────
+//
+// Yields text tokens one at a time so the caller can write them to stdout.
+// Does NOT support tool calls — use callAI for agentic loops.
+// Use for `codemem ask --stream` and `codemem chat` final responses.
+
+/**
+ * Stream text tokens from OpenAI.
+ * Yields each text delta as it arrives.
+ */
+async function* streamOpenAI(
+  config: AIConfig,
+  messages: AIMessage[],
+): AsyncGenerator<string, void, unknown> {
+  const { default: OpenAI } = await import('openai');
+  const client = new OpenAI({ apiKey: config.apiKey, baseURL: config.baseURL });
+  const model = config.model ?? 'gpt-4o';
+
+  const oaiMessages = messages
+    .filter(m => m.role !== 'tool')
+    .map(m => ({
+      role: m.role as 'system' | 'user' | 'assistant',
+      content: m.content,
+    }));
+
+  const stream = await client.chat.completions.create({
+    model,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    messages: oaiMessages as any,
+    max_tokens: config.maxTokens ?? 4096,
+    stream: true,
+  });
+
+  for await (const chunk of stream) {
+    const token = chunk.choices[0]?.delta?.content ?? '';
+    if (token) yield token;
+  }
+}
+
+/**
+ * Stream text tokens from Anthropic.
+ * Yields each text delta as it arrives.
+ */
+async function* streamAnthropic(
+  config: AIConfig,
+  messages: AIMessage[],
+): AsyncGenerator<string, void, unknown> {
+  const { default: Anthropic } = await import('@anthropic-ai/sdk');
+  const client = new Anthropic({ apiKey: config.apiKey });
+  const model = config.model ?? 'claude-opus-4-5';
+
+  const systemMsg = messages.find(m => m.role === 'system')?.content ?? '';
+  const userMessages = messages
+    .filter(m => m.role !== 'system' && m.role !== 'tool')
+    .map(m => ({
+      role: m.role as 'user' | 'assistant',
+      content: m.content,
+    }));
+
+  const stream = await client.messages.stream({
+    model,
+    max_tokens: config.maxTokens ?? 4096,
+    system: systemMsg || undefined,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    messages: userMessages as any,
+  });
+
+  for await (const event of stream) {
+    if (
+      event.type === 'content_block_delta' &&
+      event.delta.type === 'text_delta'
+    ) {
+      yield event.delta.text;
+    }
+  }
+}
+
+/**
+ * Provider-agnostic streaming.
+ * Yields text tokens; caller writes them to stdout for real-time output.
+ *
+ * @example
+ * for await (const token of streamAI(config, messages)) {
+ *   process.stdout.write(token);
+ * }
+ */
+export async function* streamAI(
+  config: AIConfig,
+  messages: AIMessage[],
+): AsyncGenerator<string, void, unknown> {
+  logger.debug('ai-agent', `Streaming ${config.provider} (${config.model ?? 'default'})`);
+  try {
+    if (config.provider === 'openai') {
+      yield* streamOpenAI(config, messages);
+    } else if (config.provider === 'anthropic') {
+      yield* streamAnthropic(config, messages);
+    } else {
+      throw new Error(`Unknown provider: ${String(config.provider)}`);
+    }
+  } catch (e) {
+    logger.error('ai-agent', 'Streaming failed', { error: String(e) } as unknown as Record<string, unknown>);
+    throw e;
+  }
 }

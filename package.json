@@ -36,6 +36,7 @@
   "scripts": {
     "build": "tsup",
     "dev": "tsx src/index.ts",
+    "mcp": "node dist/server/mcp-server.js",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "npm run build"

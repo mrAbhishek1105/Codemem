@@ -1,7 +1,7 @@
 import { defineConfig } from 'tsup';
 
 export default defineConfig({
-  entry: ['src/index.ts'],
+  entry: ['src/index.ts', 'src/server/mcp-server.ts'],
   format: ['esm'],
   target: 'node18',
   bundle: true,

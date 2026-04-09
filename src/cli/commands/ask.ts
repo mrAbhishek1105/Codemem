@@ -1,31 +1,33 @@
 /**
  * codemem ask "<query>" [options]
  *
- * Two modes:
+ * Modes:
+ *   --mode direct   (one-shot): retrieve context once → send to AI → print answer
+ *   --mode agent    (default) : AI loops with search_codebase + run_terminal tools
  *
- * --mode direct (Mode A):
- *   1. Query CodeMem for context
- *   2. Build structured prompt with context + user query
- *   3. Send to AI once → print response
- *
- * --mode agent (Mode B, default):
- *   AI receives search_codebase + run_terminal as tools.
- *   It autonomously searches the codebase, reads terminal output if needed,
- *   then produces a final grounded answer.
+ * Flags:
+ *   --stream        stream tokens to stdout in real-time (works in both modes)
+ *   --provider      openai | anthropic  (auto-detected from env vars)
+ *   --model         model name override
+ *   --top           chunks per search call
+ *   --no-terminal   disable run_terminal tool in agent mode
  */
 
 import { resolve } from 'path';
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import chalk from 'chalk';
 import { ui } from '../ui.js';
 import { ConfigStore } from '../../storage/config-store.js';
 import {
   callAI,
+  streamAI,
   runAgentLoop,
   buildSystemPrompt,
   SEARCH_CODEBASE_TOOL,
   RUN_TERMINAL_TOOL,
   AIConfig,
+  AIMessage,
   AIProviderName,
 } from '../../core/ai-agent.js';
 
@@ -36,9 +38,10 @@ const execAsync = promisify(exec);
 export interface AskOptions {
   provider?: string;
   model?: string;
-  mode?: string;       // 'agent' (default) | 'direct'
+  mode?: string;        // 'agent' (default) | 'direct'
   top?: number;
-  noTerminal?: boolean; // disable run_terminal tool
+  noTerminal?: boolean;
+  stream?: boolean;
 }
 
 export async function runAsk(query: string, options: AskOptions): Promise<void> {
@@ -61,62 +64,63 @@ export async function runAsk(query: string, options: AskOptions): Promise<void> 
     ui.info('  OPENAI_API_KEY=sk-...');
     ui.info('  ANTHROPIC_API_KEY=sk-ant-...');
     ui.blank();
-    ui.info('Then specify provider with --provider openai|anthropic');
+    ui.info('Then optionally pin the provider with --provider openai|anthropic');
     process.exit(1);
   }
 
   const mode = (options.mode ?? 'agent').toLowerCase();
+  const stream = options.stream ?? false;
 
   if (mode === 'direct') {
-    await runDirectMode(query, aiConfig, port, options.top ?? 6);
+    await runDirectMode(query, aiConfig, port, options.top ?? 6, stream);
   } else {
-    await runAgentMode(query, aiConfig, port, config, options.noTerminal ?? false);
+    await runAgentMode(query, aiConfig, port, config, options.noTerminal ?? false, stream);
   }
 }
 
-// ─── Mode A: direct (retrieve then ask) ──────────────────────────────────────
+// ─── Mode A: direct ───────────────────────────────────────────────────────────
 
 async function runDirectMode(
   query: string,
   aiConfig: AIConfig,
   port: number,
   topK: number,
+  stream: boolean,
 ): Promise<void> {
   const spinner = ui.spinner('Searching codebase...').start();
 
   try {
-    // 1. Retrieve context from CodeMem
-    spinner.text = 'Searching codebase...';
     const context = await queryCodeMem(port, query, topK);
-
-    // 2. Build prompt
     const prompt = buildDirectPrompt(query, context.assembled_text);
-
-    spinner.text = `Asking ${aiConfig.provider} (${aiConfig.model ?? 'default'})...`;
-
-    // 3. Send to AI
-    const response = await callAI(aiConfig, [{ role: 'user', content: prompt }]);
+    const messages: AIMessage[] = [{ role: 'user', content: prompt }];
 
     spinner.stop();
+    ui.blank();
+    printResponseHeader(aiConfig, 'direct', stream);
 
-    // 4. Output
-    ui.blank();
-    ui.section(`AI Response  [${aiConfig.provider} · ${aiConfig.model ?? 'default'}]`);
-    ui.blank();
-    console.log(response.content);
+    if (stream) {
+      await streamResponse(aiConfig, messages);
+    } else {
+      const response = await callAI(aiConfig, messages);
+      console.log(response.content);
+    }
+
     ui.blank();
     ui.info(
-      `Context: ${context.token_count} tokens · Query: ${context.query_time_ms}ms · Mode: direct`,
+      chalk.dim(
+        `Context: ${context.token_count} tokens · ${context.query_time_ms}ms · ` +
+        `${aiConfig.provider} ${aiConfig.model ?? 'default'} · direct`,
+      ),
     );
     ui.blank();
-  } catch (err) {
-    spinner.fail(`Failed: ${String(err)}`);
-    handleConnectionError(err);
+  } catch (e) {
+    spinner.fail(`Failed: ${String(e)}`);
+    handleConnectionError(e);
     process.exit(1);
   }
 }
 
-// ─── Mode B: agent loop (AI uses tools) ──────────────────────────────────────
+// ─── Mode B: agent loop ───────────────────────────────────────────────────────
 
 async function runAgentMode(
   query: string,
@@ -125,13 +129,13 @@ async function runAgentMode(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   config: any,
   noTerminal: boolean,
+  stream: boolean,
 ): Promise<void> {
-  const spinner = ui.spinner(`Starting agent (${aiConfig.provider})...`).start();
+  const spinner = ui.spinner(chalk.dim(`agent · ${aiConfig.provider} · searching...`)).start();
 
   const projectSummary: string =
-    typeof config.project?.name === 'string' ? config.project.name : 'CodeMem project';
+    typeof config.project?.name === 'string' ? config.project.name : 'this project';
 
-  const systemPrompt = buildSystemPrompt(projectSummary);
   const tools = noTerminal
     ? [SEARCH_CODEBASE_TOOL]
     : [SEARCH_CODEBASE_TOOL, RUN_TERMINAL_TOOL];
@@ -140,19 +144,18 @@ async function runAgentMode(
   let terminalCount = 0;
 
   try {
+    // Collect the final answer (non-streaming) from agent loop —
+    // streaming only applies to the final printout
     const answer = await runAgentLoop(
       aiConfig,
       query,
       tools,
-
-      // Tool executor
       async (toolName, args) => {
         if (toolName === 'search_codebase') {
           searchCount++;
           const q = String(args['query'] ?? '');
           const k = Math.min(Number(args['top_k'] ?? 6), 12);
-          spinner.text = `[search ${searchCount}] "${q.slice(0, 60)}"...`;
-
+          spinner.text = chalk.dim(`[search ${searchCount}] "${q.slice(0, 55)}"...`);
           const result = await queryCodeMem(port, q, k);
           return result.assembled_text;
         }
@@ -160,38 +163,81 @@ async function runAgentMode(
         if (toolName === 'run_terminal') {
           terminalCount++;
           const cmd = String(args['command'] ?? '');
-          spinner.text = `[terminal ${terminalCount}] ${cmd.slice(0, 60)}`;
-
+          spinner.text = chalk.dim(`[cmd ${terminalCount}] ${cmd.slice(0, 60)}`);
           return await runCommand(cmd);
         }
 
         return `Unknown tool: ${toolName}`;
       },
-
-      systemPrompt,
+      buildSystemPrompt(projectSummary),
     );
 
     spinner.stop();
+    ui.blank();
+    printResponseHeader(
+      aiConfig,
+      `agent · ${searchCount} search${searchCount !== 1 ? 'es' : ''}` +
+        (terminalCount > 0 ? ` · ${terminalCount} cmd${terminalCount !== 1 ? 's' : ''}` : ''),
+      stream,
+    );
+
+    if (stream) {
+      // Stream the final answer token-by-token for a polished UX
+      // We already have the full text, so simulate streaming with a delay
+      await printStreamed(answer);
+    } else {
+      console.log(answer);
+    }
 
     ui.blank();
-    ui.section(
-      `AI Response  [${aiConfig.provider} · ${aiConfig.model ?? 'default'}] ` +
-      `· ${searchCount} search${searchCount !== 1 ? 'es' : ''}` +
-      (terminalCount > 0 ? ` · ${terminalCount} cmd${terminalCount !== 1 ? 's' : ''}` : ''),
+    ui.info(
+      chalk.dim(
+        `${aiConfig.provider} ${aiConfig.model ?? 'default'} · ` +
+        `tools: search_codebase${noTerminal ? '' : ' + run_terminal'}`,
+      ),
     );
     ui.blank();
-    console.log(answer);
-    ui.blank();
-    ui.info('Mode: agent  |  Tools: search_codebase' + (noTerminal ? '' : ' + run_terminal'));
-    ui.blank();
-  } catch (err) {
-    spinner.fail(`Agent failed: ${String(err)}`);
-    handleConnectionError(err);
+  } catch (e) {
+    spinner.fail(`Agent failed: ${String(e)}`);
+    handleConnectionError(e);
     process.exit(1);
   }
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// ─── Streaming output helpers ─────────────────────────────────────────────────
+
+/** Stream from AI API — tokens arrive from the provider in real-time */
+async function streamResponse(aiConfig: AIConfig, messages: AIMessage[]): Promise<void> {
+  for await (const token of streamAI(aiConfig, messages)) {
+    process.stdout.write(token);
+  }
+  process.stdout.write('\n');
+}
+
+/** Print already-fetched text character-by-character at ~120 chars/sec */
+async function printStreamed(text: string): Promise<void> {
+  // 8ms per char ≈ fast typewriter feel without being annoying
+  const DELAY = 8;
+  for (const char of text) {
+    process.stdout.write(char);
+    if (char !== ' ' && char !== '\n') {
+      await new Promise(r => setTimeout(r, DELAY));
+    }
+  }
+  process.stdout.write('\n');
+}
+
+function printResponseHeader(aiConfig: AIConfig, modeLabel: string, stream: boolean): void {
+  const provider = chalk.cyan(aiConfig.provider);
+  const model = chalk.gray(aiConfig.model ?? 'default');
+  const mode = chalk.gray(modeLabel);
+  const streamTag = stream ? chalk.yellow(' ⚡ stream') : '';
+  console.log(`  ${chalk.bold('AI Response')}  ${provider} · ${model} · ${mode}${streamTag}`);
+  console.log('  ' + chalk.gray('─'.repeat(50)));
+  ui.blank();
+}
+
+// ─── CodeMem HTTP helper ──────────────────────────────────────────────────────
 
 interface CodeMemContext {
   assembled_text: string;
@@ -224,6 +270,8 @@ async function queryCodeMem(port: number, query: string, topK: number): Promise<
   };
 }
 
+// ─── Prompt builder ───────────────────────────────────────────────────────────
+
 function buildDirectPrompt(userQuery: string, assembledContext: string): string {
   return `[Project Context]
 ${assembledContext}
@@ -231,28 +279,31 @@ ${assembledContext}
 [User Request]
 ${userQuery}
 
-Task:
-Based on the project context above, provide a detailed answer with implementation steps and specific code changes. Reference exact file paths and function names from the context.`;
+Task: Based on the project context above, provide a detailed, actionable answer.
+Reference specific file paths and function names. Show complete code for any changes.`;
 }
+
+// ─── Terminal command executor ────────────────────────────────────────────────
 
 async function runCommand(command: string): Promise<string> {
   try {
     const { stdout, stderr } = await execAsync(command, {
       timeout: 30_000,
-      maxBuffer: 512 * 1024, // 512 KB
+      maxBuffer: 512 * 1024,
       shell: process.platform === 'win32' ? 'cmd.exe' : '/bin/sh',
     });
     const out = (stdout + (stderr ? `\n[stderr]\n${stderr}` : '')).trim();
     return out.slice(0, 8000) || '(no output)';
-  } catch (err) {
-    const e = err as { stdout?: string; stderr?: string; message?: string };
-    const output = [e.stdout, e.stderr, e.message].filter(Boolean).join('\n').trim();
+  } catch (e) {
+    const ex = e as { stdout?: string; stderr?: string; message?: string };
+    const output = [ex.stdout, ex.stderr, ex.message].filter(Boolean).join('\n').trim();
     return `Error: ${output.slice(0, 4000)}`;
   }
 }
 
+// ─── AI config resolver ───────────────────────────────────────────────────────
+
 function resolveAIConfig(options: AskOptions): AIConfig | null {
-  // Determine provider
   let provider = options.provider as AIProviderName | undefined;
   let apiKey = '';
 
@@ -274,18 +325,15 @@ function resolveAIConfig(options: AskOptions): AIConfig | null {
     if (!apiKey) return null;
   }
 
-  return {
-    provider,
-    apiKey,
-    model: options.model,
-    maxTokens: 4096,
-  };
+  return { provider, apiKey, model: options.model, maxTokens: 4096 };
 }
+
+// ─── Connection error helper ──────────────────────────────────────────────────
 
 function handleConnectionError(err: unknown): void {
   const msg = String(err);
   if (msg.includes('ECONNREFUSED') || msg.includes('fetch failed')) {
-    ui.warn('Cannot reach CodeMem sidecar on localhost.');
+    ui.warn('Cannot reach CodeMem sidecar.');
     ui.info('Run "codemem start" in another terminal, then retry.');
   }
 }
