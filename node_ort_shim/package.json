@@ -1,0 +1,6 @@
+{
+  "name": "onnxruntime-node",
+  "version": "1.14.0",
+  "description": "Shim: redirects onnxruntime-node to onnxruntime-web (WASM) for Node.js compatibility",
+  "main": "index.js"
+}

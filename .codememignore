@@ -1,0 +1,19 @@
+# CodeMem ignore file
+# Inherits all .gitignore patterns automatically.
+# Add extra patterns below.
+
+# Large data directories
+data/
+fixtures/
+datasets/
+
+# Generated docs
+docs/api/
+docs/generated/
+
+# IDE generated
+.vscode/
+.idea/
+
+# Specific generated files
+src/generated/**
