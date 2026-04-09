@@ -3,6 +3,9 @@ export interface QueryOptions {
   token_budget?: number;
   include_dependencies?: boolean;
   include_recent_changes?: boolean;
+  semantic_weight?: number;
+  keyword_weight?: number;
+  recency_weight?: number;
   file_filter?: string | null;
   language_filter?: string | null;
 }

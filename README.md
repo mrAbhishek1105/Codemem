@@ -170,6 +170,15 @@ curl -X POST http://localhost:8432/api/v1/query \
   -d '{"query": "how does the payment flow work", "options": {"top_k": 5}}'
 ```
 
+You can also trigger reindexing via HTTP:
+
+```bash
+curl -X POST http://localhost:8432/api/v1/index \
+  -H "Content-Type: application/json" \
+  -d '{"mode": "incremental"}'
+```
+
+
 ---
 
 ## CLI Commands

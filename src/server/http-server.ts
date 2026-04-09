@@ -43,7 +43,7 @@ export class HttpServer {
       description: '',
     });
 
-    this.retriever = new Retriever(ctx.store, ctx.meta, ctx.embedder, summary);
+    this.retriever = new Retriever(ctx.store, ctx.meta, ctx.config, ctx.embedder, summary);
 
     this.setup();
   }
