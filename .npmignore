@@ -1,0 +1,45 @@
+# Build and tooling
+src/
+tsconfig.json
+tsup.config.ts
+.codemem/
+node_modules/
+
+# Documentation
+01-PRODUCT-OVERVIEW.md
+02-SYSTEM-ARCHITECTURE.md
+03-DATA-FLOW-AND-CHUNKING.md
+04-API-AND-MCP-DESIGN.md
+05-CLI-AND-UX-DESIGN.md
+06-IDE-ADAPTER-DESIGN.md
+07-TECH-STACK-AND-STRUCTURE.md
+08-DEVELOPMENT-ROADMAP.md
+09-COMPETITIVE-ANALYSIS.md
+10-CRITICAL-IMPROVEMENTS.md
+11-PRODUCTION-ENGINEERING.md
+
+# Git and CI
+.git/
+.gitignore
+.github/
+.gitlab-ci.yml
+.circleci/
+
+# Development
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Testing
+vitest.config.ts
+**.test.ts
+**.spec.ts
+
+# Package files
+package-lock.json
+npm-debug.log*
+yarn-error.log*
