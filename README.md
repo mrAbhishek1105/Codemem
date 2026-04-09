@@ -144,7 +144,7 @@ npm link
 ### Option B — Install from npm (once published)
 
 ```bash
-npm install -g codemem
+npm install -g @mrabhishek1105/codemem
 ```
 
 ---
