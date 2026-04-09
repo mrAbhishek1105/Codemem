@@ -78,6 +78,7 @@ export class VectraStore {
       imports: JSON.stringify(chunk.header.imports),
       called_by: JSON.stringify(chunk.header.called_by),
       calls: JSON.stringify(chunk.header.calls),
+      params: JSON.stringify(chunk.header.params ?? []),
       code: chunk.code,
       envelope_text: chunk.envelope_text,
       start_line: chunk.metadata.start_line,
@@ -101,6 +102,7 @@ export class VectraStore {
         imports: JSON.parse(meta.imports || '[]') as string[],
         called_by: JSON.parse(meta.called_by || '[]') as string[],
         calls: JSON.parse(meta.calls || '[]') as string[],
+        params: JSON.parse(meta.params || '[]') as string[],
       },
       code: meta.code,
       metadata: {

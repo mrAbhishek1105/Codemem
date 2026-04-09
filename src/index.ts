@@ -92,6 +92,26 @@ program
     await runReindex(opts).catch(handleError);
   });
 
+// ── codemem ask ───────────────────────────────────────────────────────────────
+program
+  .command('ask <query>')
+  .description('Ask an AI about your codebase — CodeMem provides the context automatically')
+  .option('-p, --provider <name>', 'AI provider: openai | anthropic  (auto-detected from env)')
+  .option('-m, --model <name>', 'Model override  (e.g. gpt-4o, claude-opus-4-5)')
+  .option('--mode <mode>', 'agent (default, tool-loop) | direct (one-shot)', 'agent')
+  .option('-n, --top <n>', 'Chunks retrieved per search call', '6')
+  .option('--no-terminal', 'Disable run_terminal tool in agent mode')
+  .action(async (query, opts) => {
+    const { runAsk } = await import('./cli/commands/ask.js');
+    await runAsk(query, {
+      provider: opts.provider as string | undefined,
+      model: opts.model as string | undefined,
+      mode: opts.mode as string,
+      top: parseInt(String(opts.top ?? '6'), 10),
+      noTerminal: opts.terminal === false, // commander --no-terminal → opts.terminal = false
+    }).catch(handleError);
+  });
+
 program.parse(process.argv);
 
 function handleError(err: unknown): void {

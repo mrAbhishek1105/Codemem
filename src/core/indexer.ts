@@ -5,7 +5,8 @@ import { VectraStore } from '../storage/vectra-store.js';
 import { MetaStore } from '../storage/meta-store.js';
 import { ConfigStore } from '../storage/config-store.js';
 import { Embedder } from './embedder.js';
-import { parseFile, detectLanguage } from '../parsers/regex-parser.js';
+import { detectLanguage } from '../parsers/regex-parser.js';
+import { extractChunks } from './chunk-extractor.js';
 import { IgnoreFilter } from '../utils/ignore.js';
 import { hashContent } from '../utils/hash.js';
 import { logger } from '../utils/logger.js';
@@ -245,7 +246,7 @@ export class Indexer {
 
     const lastModified = statSync(absolutePath).mtime.toISOString();
 
-    return parseFile({
+    return extractChunks({
       filePath: relPath,
       content,
       lastModified,

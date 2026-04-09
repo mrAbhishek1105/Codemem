@@ -1,6 +1,7 @@
 export type ChunkType =
   | 'function'
   | 'class'
+  | 'method'
   | 'interface'
   | 'type'
   | 'constant'
@@ -17,6 +18,8 @@ export interface ChunkHeader {
   imports: string[];
   called_by: string[];
   calls: string[];
+  /** Parameter names — populated by AST parser for functions/methods */
+  params?: string[];
 }
 
 export interface ChunkMetadata {
@@ -56,6 +59,7 @@ export interface VectraMetadata {
   imports: string;       // JSON-serialized string[]
   called_by: string;     // JSON-serialized string[]
   calls: string;         // JSON-serialized string[]
+  params: string;        // JSON-serialized string[]
   code: string;
   envelope_text: string;
   start_line: number;

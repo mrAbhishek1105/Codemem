@@ -242,6 +242,7 @@ function generateDescription(name: string, type: ChunkType, firstLines: string):
   const words = name.replace(/([A-Z])/g, ' $1').toLowerCase().trim();
   const typeLabel: Record<ChunkType, string> = {
     function: 'Function',
+    method: 'Method',
     class: 'Class',
     interface: 'Interface',
     type: 'Type',

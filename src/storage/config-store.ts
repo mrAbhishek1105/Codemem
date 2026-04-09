@@ -63,7 +63,10 @@ export class ConfigStore {
 
   update(patch: Partial<CodeMemConfig>): CodeMemConfig {
     const current = this.read();
-    const updated = deepMerge(current, patch) as CodeMemConfig;
+    const updated = deepMerge(
+      current as unknown as Record<string, unknown>,
+      patch as unknown as Record<string, unknown>,
+    ) as unknown as CodeMemConfig;
     this.write(updated);
     return updated;
   }

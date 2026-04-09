@@ -16,6 +16,11 @@ export default defineConfig({
     // Keep onnxruntime external — it has native bindings loaded dynamically
     'onnxruntime-node',
     'sharp',
+    // AI SDKs — large, contain native optional deps, load fine at runtime
+    'openai',
+    '@anthropic-ai/sdk',
+    // AST parser — has optional native bindings
+    '@typescript-eslint/typescript-estree',
   ],
   noExternal: [
     // Bundle everything else, including CJS packages
