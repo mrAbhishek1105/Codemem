@@ -12,6 +12,9 @@ export interface RetrievalConfig {
   default_token_budget: number;
   include_dependencies: boolean;
   include_recent_changes: boolean;
+  semantic_weight: number;
+  keyword_weight: number;
+  recency_weight: number;
   recency_boost_hours: number;
   recency_boost_factor: number;
 }
@@ -57,6 +60,9 @@ export const DEFAULT_CONFIG: Omit<CodeMemConfig, 'project'> = {
     default_token_budget: 4000,
     include_dependencies: true,
     include_recent_changes: true,
+    semantic_weight: 0.55,
+    keyword_weight: 0.30,
+    recency_weight: 0.15,
     recency_boost_hours: 24,
     recency_boost_factor: 1.2,
   },

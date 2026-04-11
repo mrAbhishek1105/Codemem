@@ -1,0 +1,16 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "outDir": "./.test-dist",
+    "rootDir": ".",
+    "noEmit": false
+  },
+  "include": [
+    "src/core/ai-agent.ts",
+    "src/utils/ai-config.ts",
+    "src/utils/logger.ts",
+    "src/types/query.ts",
+    "tests/run-tests.ts"
+  ],
+  "exclude": []
+}

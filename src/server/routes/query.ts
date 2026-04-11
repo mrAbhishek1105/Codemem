@@ -1,4 +1,5 @@
 import { FastifyInstance } from 'fastify';
+import { resolve } from 'path';
 import { Retriever } from '../../core/retriever.js';
 import { Indexer } from '../../core/indexer.js';
 import { QueryOptions } from '../../types/query.js';
@@ -49,11 +50,27 @@ export function registerQueryRoutes(
   // POST /api/v1/index — trigger (re)indexing
   app.post<{ Body: IndexBody }>('/api/v1/index', async (request, reply) => {
     const mode = request.body?.mode ?? 'incremental';
+    const target = request.body?.target ?? null;
 
-    const result = await indexer.indexIncremental();
+    let result;
+    if (mode === 'full') {
+      result = await indexer.indexFull();
+    } else if (mode === 'file') {
+      if (!target || typeof target !== 'string') {
+        throw createApiError('TARGET_REQUIRED', 'target file path is required for file indexing', 400);
+      }
+      const filePath = resolve(process.cwd(), target);
+      result = await indexer.indexIncremental([filePath]);
+    } else {
+      result = await indexer.indexIncremental();
+    }
+
+    retriever.invalidateCache();
 
     return reply.send({
       status: 'completed',
+      mode,
+      target,
       files_indexed: result.filesIndexed,
       chunks_created: result.chunksCreated,
       duration_ms: result.durationMs,
@@ -65,17 +82,23 @@ export function registerQueryRoutes(
   app.post<{ Body: UpdateBody }>('/api/v1/update', async (request, reply) => {
     const { file_path, action } = request.body;
 
-    if (!file_path) {
-      throw createApiError('FILE_PATH_REQUIRED', 'file_path is required', 400);
+    if (!file_path || typeof file_path !== 'string') {
+      throw createApiError('FILE_PATH_REQUIRED', 'file_path is required and must be a string', 400);
     }
 
-    // Trigger incremental re-index for this specific file
+    const filePath = resolve(process.cwd(), file_path);
+    const result = await indexer.indexIncremental([filePath]);
     retriever.invalidateCache();
 
     return reply.send({
-      status: 'queued',
-      file_path,
+      status: 'updated',
       action,
+      file_path,
+      files_indexed: result.filesIndexed,
+      chunks_created: result.chunksCreated,
+      chunks_removed: result.chunksRemoved,
+      duration_ms: result.durationMs,
+      errors: result.errors,
     });
   });
 }

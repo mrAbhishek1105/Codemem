@@ -28,8 +28,8 @@ import {
   streamAI,
   AIConfig,
   AIMessage,
-  AIProviderName,
 } from '../../core/ai-agent.js';
+import { resolveAIConfig } from '../../utils/ai-config.js';
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -51,6 +51,7 @@ interface ChatHistory {
 export interface ChatOptions {
   provider?: string;
   model?: string;
+  baseUrl?: string;
   stream?: boolean;
   top?: number;
   noContext?: boolean;  // skip codebase search (plain chat)
@@ -77,6 +78,7 @@ export async function runChat(options: ChatOptions): Promise<void> {
     ui.fail('No AI API key found.');
     ui.blank();
     ui.info('Set OPENAI_API_KEY or ANTHROPIC_API_KEY, then retry.');
+    ui.info('For OpenAI-compatible hosted APIs, you can also set OPENAI_BASE_URL.');
     process.exit(1);
   }
 
@@ -352,31 +354,6 @@ async function queryCodeMem(
 }
 
 // ─── AI config resolver ───────────────────────────────────────────────────────
-
-function resolveAIConfig(options: ChatOptions): AIConfig | null {
-  let provider = options.provider as AIProviderName | undefined;
-  let apiKey = '';
-
-  if (!provider) {
-    if (process.env['OPENAI_API_KEY']) {
-      provider = 'openai';
-      apiKey = process.env['OPENAI_API_KEY'];
-    } else if (process.env['ANTHROPIC_API_KEY']) {
-      provider = 'anthropic';
-      apiKey = process.env['ANTHROPIC_API_KEY'];
-    } else {
-      return null;
-    }
-  } else {
-    apiKey =
-      provider === 'openai'
-        ? (process.env['OPENAI_API_KEY'] ?? '')
-        : (process.env['ANTHROPIC_API_KEY'] ?? '');
-    if (!apiKey) return null;
-  }
-
-  return { provider, apiKey, model: options.model, maxTokens: 4096 };
-}
 
 function handleConnectionError(err: unknown): void {
   const msg = String(err);

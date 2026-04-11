@@ -1,5 +1,5 @@
 import { join } from 'path';
-import { mkdirSync, existsSync } from 'fs';
+import { mkdirSync, existsSync, rmSync } from 'fs';
 import { Chunk, VectraMetadata } from '../types/chunk.js';
 import { logger } from '../utils/logger.js';
 
@@ -45,19 +45,49 @@ export class VectraStore {
       mkdirSync(this.dbPath, { recursive: true });
     }
 
-    // Dynamic import to handle ESM/CJS boundary
     const { LocalIndex } = await import('vectra');
     this.index = new LocalIndex(this.dbPath) as unknown as LocalIndexLike;
 
-    if (!await this.index.isIndexCreated()) {
-      await this.index.createIndex({
-        version: 1,
-        deleteIfExists: false,
-      });
-      logger.info('vectra-store', 'Created new vector index');
-    } else {
-      logger.info('vectra-store', 'Opened existing vector index');
+    try {
+      const indexCreated = await this.index.isIndexCreated();
+      if (!indexCreated) {
+        await this.index.createIndex({ version: 1, deleteIfExists: false });
+        logger.info('vectra-store', 'Created new vector index');
+      } else {
+        // Validate the existing index before continuing.
+        await this.index.listItems();
+        logger.info('vectra-store', 'Opened existing vector index');
+      }
+    } catch (err) {
+      logger.error('vectra-store', 'Existing vector index is corrupted, recreating', this.toErrorData(err));
+      this.recreateDb();
+      this.index = new LocalIndex(this.dbPath) as unknown as LocalIndexLike;
+      await this.index.createIndex({ version: 1, deleteIfExists: false });
+      logger.info('vectra-store', 'Recreated corrupted vector index');
     }
+  }
+
+  private toErrorData(err: unknown): Record<string, unknown> {
+    if (err instanceof Error) {
+      return {
+        name: err.name,
+        message: err.message,
+        stack: err.stack,
+      };
+    }
+    return { error: String(err) };
+  }
+
+  private recreateDb(): void {
+    if (existsSync(this.dbPath)) {
+      try {
+        rmSync(this.dbPath, { recursive: true, force: true });
+      } catch (err) {
+        logger.error('vectra-store', 'Failed to remove corrupted DB path', this.toErrorData(err));
+        throw err;
+      }
+    }
+    mkdirSync(this.dbPath, { recursive: true });
   }
 
   private ensureReady(): LocalIndexLike {

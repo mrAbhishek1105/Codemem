@@ -28,8 +28,8 @@ import {
   RUN_TERMINAL_TOOL,
   AIConfig,
   AIMessage,
-  AIProviderName,
 } from '../../core/ai-agent.js';
+import { resolveAIConfig } from '../../utils/ai-config.js';
 
 const execAsync = promisify(exec);
 
@@ -38,6 +38,7 @@ const execAsync = promisify(exec);
 export interface AskOptions {
   provider?: string;
   model?: string;
+  baseUrl?: string;
   mode?: string;        // 'agent' (default) | 'direct'
   top?: number;
   noTerminal?: boolean;
@@ -63,6 +64,8 @@ export async function runAsk(query: string, options: AskOptions): Promise<void> 
     ui.info('Set one of these environment variables:');
     ui.info('  OPENAI_API_KEY=sk-...');
     ui.info('  ANTHROPIC_API_KEY=sk-ant-...');
+    ui.info('Optional for OpenAI-compatible hosted APIs:');
+    ui.info('  OPENAI_BASE_URL=https://your-provider.example/v1');
     ui.blank();
     ui.info('Then optionally pin the provider with --provider openai|anthropic');
     process.exit(1);
@@ -302,31 +305,6 @@ async function runCommand(command: string): Promise<string> {
 }
 
 // ─── AI config resolver ───────────────────────────────────────────────────────
-
-function resolveAIConfig(options: AskOptions): AIConfig | null {
-  let provider = options.provider as AIProviderName | undefined;
-  let apiKey = '';
-
-  if (!provider) {
-    if (process.env['OPENAI_API_KEY']) {
-      provider = 'openai';
-      apiKey = process.env['OPENAI_API_KEY'];
-    } else if (process.env['ANTHROPIC_API_KEY']) {
-      provider = 'anthropic';
-      apiKey = process.env['ANTHROPIC_API_KEY'];
-    } else {
-      return null;
-    }
-  } else {
-    apiKey =
-      provider === 'openai'
-        ? (process.env['OPENAI_API_KEY'] ?? '')
-        : (process.env['ANTHROPIC_API_KEY'] ?? '');
-    if (!apiKey) return null;
-  }
-
-  return { provider, apiKey, model: options.model, maxTokens: 4096 };
-}
 
 // ─── Connection error helper ──────────────────────────────────────────────────
 

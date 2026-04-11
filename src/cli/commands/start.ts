@@ -39,7 +39,7 @@ export async function runStart(options: { debug?: boolean; port?: number }): Pro
     storeSpinner.succeed(`Vector index ready (${count} chunks)`);
   } catch (err) {
     storeSpinner.fail(`Failed to open index: ${String(err)}`);
-    ui.warn('Run "codemem init" to create the index.');
+    ui.warn('Run "codemem init" to create the index. If this persists, remove .codemem/db and run "codemem init" again.');
     process.exit(1);
   }
 

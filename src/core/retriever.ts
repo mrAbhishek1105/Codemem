@@ -15,6 +15,7 @@
 import { LRUCache } from 'lru-cache';
 import { VectraStore } from '../storage/vectra-store.js';
 import { MetaStore } from '../storage/meta-store.js';
+import { ConfigStore } from '../storage/config-store.js';
 import { Embedder } from './embedder.js';
 import { buildStructuredContext } from './context-builder.js';
 import { Chunk, RankedChunk } from '../types/chunk.js';
@@ -85,18 +86,15 @@ function chunkTypeBoost(type: string): number {
 export class Retriever {
   private store: VectraStore;
   private meta: MetaStore;
+  private config: ConfigStore;
   private embedder: Embedder;
   private projectSummary: string;
   private queryCache: LRUCache<string, CachedResult>;
 
-  constructor(
-    store: VectraStore,
-    meta: MetaStore,
-    embedder: Embedder,
-    projectSummary: string,
-  ) {
+  constructor(store: VectraStore, meta: MetaStore, config: ConfigStore, embedder: Embedder, projectSummary: string) {
     this.store = store;
     this.meta = meta;
+    this.config = config;
     this.embedder = embedder;
     this.projectSummary = projectSummary;
     this.queryCache = new LRUCache<string, CachedResult>({ max: 100 });
@@ -112,11 +110,20 @@ export class Retriever {
 
   async query(queryText: string, opts: QueryOptions = {}): Promise<QueryResult> {
     const startTime = Date.now();
-    const topK = opts.top_k ?? 6;
-    const tokenBudget = opts.token_budget ?? 4000;
+    const cfg = this.config.read();
+    const topK = opts.top_k ?? cfg.retrieval.default_top_k;
+    const tokenBudget = opts.token_budget ?? cfg.retrieval.default_token_budget;
+    const includeDependencies = opts.include_dependencies ?? cfg.retrieval.include_dependencies;
+    const includeRecentChanges = opts.include_recent_changes ?? cfg.retrieval.include_recent_changes;
+    const semanticWeight = opts.semantic_weight ?? cfg.retrieval.semantic_weight;
+    const keywordWeight = opts.keyword_weight ?? cfg.retrieval.keyword_weight;
+    const recencyWeight = opts.recency_weight ?? cfg.retrieval.recency_weight;
+    const fileFilter = opts.file_filter ? opts.file_filter.toLowerCase() : null;
+    const languageFilter = opts.language_filter ? opts.language_filter.toLowerCase() : null;
+    const intent = detectIntent(queryText);
 
-    // Cache check
-    const cacheKey = hashString(`${queryText}:${topK}:${tokenBudget}`);
+    // Check cache
+    const cacheKey = hashString(`${queryText}:${topK}:${tokenBudget}:${includeDependencies}:${includeRecentChanges}:${semanticWeight}:${keywordWeight}:${recencyWeight}:${fileFilter ?? ''}:${languageFilter ?? ''}:${intent}`);
     const cached = this.queryCache.get(cacheKey);
     if (cached && Date.now() - cached.timestamp < 5 * 60 * 1000) {
       return cached.result;
@@ -125,11 +132,18 @@ export class Retriever {
     // 1. Embed the query
     const queryVector = await this.embedder.embed(queryText);
 
-    // 2. Get candidates (2× for re-ranking headroom)
-    const candidates = await this.store.search(queryVector, topK * 2);
+    // Step 2: Semantic search — get top candidates for re-ranking
+    const candidates = await this.store.search(queryVector, Math.max(topK * 4, 20));
 
-    if (candidates.length === 0) {
-      const empty: QueryResult = {
+    const filteredCandidates = candidates.filter(({ chunk }) => {
+      const matchesFile = fileFilter ? chunk.header.file_path.toLowerCase().includes(fileFilter) : true;
+      const matchesLanguage = languageFilter ? chunk.header.language.toLowerCase() === languageFilter : true;
+      const dependencyOk = includeDependencies ? true : !this.isDependencyChunk(chunk);
+      return matchesFile && matchesLanguage && dependencyOk;
+    });
+
+    if (filteredCandidates.length === 0) {
+      const emptyResult: QueryResult = {
         context: {
           project_summary: this.projectSummary,
           chunks: [],
@@ -138,28 +152,29 @@ export class Retriever {
           token_count: estimateTokens(this.projectSummary),
         },
         stats: {
-          chunks_searched: 0,
+          chunks_searched: candidates.length,
           chunks_returned: 0,
           tokens_saved_estimate: 0,
           query_time_ms: Date.now() - startTime,
         },
       };
-      return empty;
+      return emptyResult;
     }
 
-    // 3. Hybrid re-ranking with all boosts
-    const intent = detectIntent(queryText);
-    const ranked = this.hybridRank(queryText, candidates, topK, intent);
+    // Step 3: Hybrid re-ranking (semantic + keyword + recency)
+    const ranked = this.hybridRank(queryText, filteredCandidates, topK, semanticWeight, keywordWeight, recencyWeight, intent);
 
     // 4. Build structured context (context-builder)
     const built = buildStructuredContext(ranked, this.projectSummary, tokenBudget);
 
-    // 5. Recent changes
-    const recentChanges = this.meta.getRecentChanges(24).slice(0, 5).map(c => ({
-      file: c.file,
-      change: `${c.action} (${c.hash ? 'hash changed' : ''})`,
-      when: this.formatRelativeTime(new Date(c.timestamp)),
-    }));
+    // Step 5: Get recent changes
+    const recentChanges = includeRecentChanges
+      ? this.meta.getRecentChanges(cfg.retrieval.recency_boost_hours).slice(0, 5).map(c => ({
+          file: c.file,
+          change: `${c.action} (${c.hash ? 'hash changed' : ''})`,
+          when: this.formatRelativeTime(new Date(c.timestamp)),
+        }))
+      : [];
 
     // 6. Token savings estimate
     const totalChunks = await this.store.count();
@@ -208,14 +223,13 @@ export class Retriever {
     query: string,
     candidates: Array<{ chunk: Chunk; score: number }>,
     topK: number,
+    semanticWeight: number,
+    keywordWeight: number,
+    recencyWeight: number,
     intent: QueryIntent,
   ): RankedChunk[] {
     const queryTerms = this.tokenize(query.toLowerCase());
     const now = Date.now();
-
-    const W_SEMANTIC = 0.55;
-    const W_KEYWORD  = 0.30;
-    const W_RECENCY  = 0.15;
 
     const ranked = candidates.map(({ chunk, score }) => {
       const semantic = Math.max(0, Math.min(1, score));
@@ -231,17 +245,14 @@ export class Retriever {
         hoursAgo < 72  ? 0.4 :
         hoursAgo < 168 ? 0.2 : 0.0;
 
-      const baseScore =
-        semantic * W_SEMANTIC +
-        keyword  * W_KEYWORD  +
-        recency  * W_RECENCY;
+      const finalScore = semantic * semanticWeight + keyword * keywordWeight + recency * recencyWeight;
 
       // Apply boosts (clamped to 0–1)
       const boosted = Math.min(
         1,
         Math.max(
           0,
-          baseScore +
+          finalScore +
             fileTypeBoost(chunk.header.file_path, intent) +
             chunkTypeBoost(chunk.header.type),
         ),
@@ -253,7 +264,7 @@ export class Retriever {
         semantic_score: semantic,
         keyword_score: keyword,
         recency_score: recency,
-        is_dependency: false,
+        is_dependency: this.isDependencyChunk(chunk),
       };
       return rc;
     });
@@ -282,6 +293,12 @@ export class Retriever {
       score += idf * tfNorm;
     }
     return Math.min(1, score / (queryTerms.length * 2));
+  }
+
+  private isDependencyChunk(chunk: Chunk): boolean {
+    return chunk.header.type === 'constant' ||
+      chunk.header.type === 'module' ||
+      chunk.header.type === 'other';
   }
 
   private tokenize(text: string): string[] {

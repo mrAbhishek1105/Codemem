@@ -98,6 +98,7 @@ program
   .description('Ask an AI about your codebase — context retrieved automatically')
   .option('-p, --provider <name>', 'AI provider: openai | anthropic  (auto from env)')
   .option('-m, --model <name>', 'Model override  (e.g. gpt-4o, claude-opus-4-5)')
+  .option('--base-url <url>', 'OpenAI-compatible API base URL for hosted web AI providers')
   .option('--mode <mode>', 'agent (default, tool-loop) | direct (one-shot)', 'agent')
   .option('-n, --top <n>', 'Chunks retrieved per search call', '6')
   .option('-s, --stream', 'Stream response tokens in real-time')
@@ -107,6 +108,7 @@ program
     await runAsk(query, {
       provider: opts.provider as string | undefined,
       model: opts.model as string | undefined,
+      baseUrl: opts.baseUrl as string | undefined,
       mode: opts.mode as string,
       top: parseInt(String(opts.top ?? '6'), 10),
       stream: Boolean(opts.stream),
@@ -120,6 +122,7 @@ program
   .description('Interactive multi-turn AI chat with codebase memory')
   .option('-p, --provider <name>', 'AI provider: openai | anthropic  (auto from env)')
   .option('-m, --model <name>', 'Model override')
+  .option('--base-url <url>', 'OpenAI-compatible API base URL for hosted web AI providers')
   .option('-n, --top <n>', 'Context chunks per turn', '6')
   .option('-s, --stream', 'Stream response tokens in real-time')
   .option('--no-context', 'Disable codebase search (plain chat)')
@@ -129,6 +132,7 @@ program
     await runChat({
       provider: opts.provider as string | undefined,
       model: opts.model as string | undefined,
+      baseUrl: opts.baseUrl as string | undefined,
       top: parseInt(String(opts.top ?? '6'), 10),
       stream: Boolean(opts.stream),
       noContext: opts.context === false,
