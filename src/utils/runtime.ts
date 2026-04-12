@@ -38,3 +38,13 @@ export function resolveServerPort(configPort?: number, fallbackPort = 8432): num
 
   return configPort ?? fallbackPort;
 }
+
+// Centralised runtime config — port/version/baseUrl without needing a project config file.
+// CLI commands that have the per-project config should still call resolveServerPort(config.server.port).
+const _defaultPort = resolveServerPort();
+
+export const runtimeConfig = {
+  port: _defaultPort,
+  version: getPackageVersion(),
+  baseUrl: `http://localhost:${_defaultPort}`,
+} as const;

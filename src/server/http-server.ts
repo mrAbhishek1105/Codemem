@@ -9,6 +9,7 @@ import { FileWatcher } from '../core/file-watcher.js';
 import { registerQueryRoutes } from './routes/query.js';
 import { registerStatusRoutes } from './routes/status.js';
 import { registerMcpRoutes } from './routes/mcp.js';
+import { registerAgentRoutes } from './routes/agent.js';
 import { errorHandler } from './middleware/error-handler.js';
 import { buildProjectSummary } from '../core/project-analyzer.js';
 import { logger } from '../utils/logger.js';
@@ -78,6 +79,7 @@ export class HttpServer {
       this.startTime,
     );
     registerMcpRoutes(this.app, this.retriever, () => this.indexReady);
+    registerAgentRoutes(this.app, this.retriever, this.ctx.projectRoot, () => this.indexReady);
 
     // Wire up file watcher → incremental indexer → cache invalidation
     this.ctx.watcher.onFileChange(async (absolutePath, event) => {

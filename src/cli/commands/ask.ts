@@ -11,6 +11,8 @@
  *   --model         model name override
  *   --top           chunks per search call
  *   --no-terminal   disable run_terminal tool in agent mode
+ *   --output        context (default) | patch — patch mode instructs the AI to
+ *                   return a unified diff / complete updated file(s)
  */
 
 import { resolve } from 'path';
@@ -44,6 +46,7 @@ export interface AskOptions {
   top?: number;
   noTerminal?: boolean;
   stream?: boolean;
+  output?: string;      // 'context' (default) | 'patch'
 }
 
 export async function runAsk(query: string, options: AskOptions): Promise<void> {
@@ -74,11 +77,12 @@ export async function runAsk(query: string, options: AskOptions): Promise<void> 
 
   const mode = (options.mode ?? 'agent').toLowerCase();
   const stream = options.stream ?? false;
+  const outputMode = (options.output ?? 'context').toLowerCase() as 'context' | 'patch';
 
   if (mode === 'direct') {
-    await runDirectMode(query, aiConfig, port, options.top ?? 6, stream);
+    await runDirectMode(query, aiConfig, port, options.top ?? 6, stream, outputMode);
   } else {
-    await runAgentMode(query, aiConfig, port, config, options.noTerminal ?? false, stream);
+    await runAgentMode(query, aiConfig, port, config, options.noTerminal ?? false, stream, outputMode);
   }
 }
 
@@ -90,12 +94,15 @@ async function runDirectMode(
   port: number,
   topK: number,
   stream: boolean,
+  outputMode: 'context' | 'patch' = 'context',
 ): Promise<void> {
   const spinner = ui.spinner('Searching codebase...').start();
 
   try {
     const context = await queryCodeMem(port, query, topK);
-    const prompt = buildDirectPrompt(query, context.assembled_text);
+    const prompt = outputMode === 'patch'
+      ? buildPatchPrompt(query, context.assembled_text)
+      : buildDirectPrompt(query, context.assembled_text);
     const messages: AIMessage[] = [{ role: 'user', content: prompt }];
 
     spinner.stop();
@@ -134,6 +141,7 @@ async function runAgentMode(
   config: any,
   noTerminal: boolean,
   stream: boolean,
+  outputMode: 'context' | 'patch' = 'context',
 ): Promise<void> {
   const spinner = ui.spinner(chalk.dim(`agent · ${aiConfig.provider} · searching...`)).start();
 
@@ -173,7 +181,7 @@ async function runAgentMode(
 
         return `Unknown tool: ${toolName}`;
       },
-      buildSystemPrompt(projectSummary),
+      buildSystemPrompt(projectSummary, outputMode),
     );
 
     spinner.stop();
@@ -285,6 +293,24 @@ ${userQuery}
 
 Task: Based on the project context above, provide a detailed, actionable answer.
 Reference specific file paths and function names. Show complete code for any changes.`;
+}
+
+function buildPatchPrompt(userQuery: string, assembledContext: string): string {
+  return `[Project Context]
+${assembledContext}
+
+[User Request]
+${userQuery}
+
+Task: Based on the project context above, output the COMPLETE updated content for each file that needs to be changed.
+Format each file as:
+
+File: <relative/path/to/file.ts>
+\`\`\`ts
+// complete new file content here
+\`\`\`
+
+Include ONLY files that need to be modified. Provide the full file content, not just changed lines.`;
 }
 
 // ─── Terminal command executor ────────────────────────────────────────────────

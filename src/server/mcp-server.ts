@@ -17,7 +17,7 @@
 
 import { searchCodebaseTool } from '../core/ai-agent.js';
 import { QueryResult } from '../types/query.js';
-import { getPackageVersion } from '../utils/runtime.js';
+import { runtimeConfig } from '../utils/runtime.js';
 
 // ─── JSON-RPC types ───────────────────────────────────────────────────────────
 
@@ -59,6 +59,20 @@ function log(msg: string): void {
   process.stderr.write(`[codemem-mcp] ${msg}\n`);
 }
 
+function handleSidecarError(e: unknown, port: number, id: string | number | null): JsonRpcResponse {
+  const message = e instanceof Error ? e.message : String(e);
+  log(`sidecar error: ${message}`);
+  if (message.includes('ECONNREFUSED') || message.includes('fetch failed')) {
+    return ok(id, {
+      content: [{
+        type: 'text',
+        text: `CodeMem sidecar is not running on port ${port}. Start it with: codemem start`,
+      }],
+    });
+  }
+  return err(id, -32000, `Tool execution failed: ${message}`);
+}
+
 // ─── Tool definition ──────────────────────────────────────────────────────────
 
 const TOOLS = [
@@ -86,6 +100,80 @@ const TOOLS = [
       required: ['query'],
     },
   },
+  {
+    name: 'plan_change',
+    description:
+      'Generate a structured implementation plan for a code change. ' +
+      'Returns a list of files to modify/create/delete with descriptions of each change. ' +
+      'Call this before generate_patch to understand scope. ' +
+      'Requires AI API key configured on the CodeMem server (OPENAI_API_KEY or ANTHROPIC_API_KEY).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: 'Description of the change to implement, e.g. "add JWT validation to login"',
+        },
+        top_k: {
+          type: 'number',
+          description: 'Context chunks to retrieve for planning (default: 8)',
+        },
+      },
+      required: ['query'],
+    },
+  },
+  {
+    name: 'generate_patch',
+    description:
+      'Generate complete updated file contents based on a plan from plan_change. ' +
+      'Returns full file content for each file in the plan — not a diff. ' +
+      'Review the patches before calling apply_patch. ' +
+      'Requires AI API key configured on the CodeMem server.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        plan: {
+          type: 'object',
+          description: 'Plan object returned by plan_change',
+        },
+        top_k: {
+          type: 'number',
+          description: 'Context chunks to retrieve for patch generation (default: 8)',
+        },
+      },
+      required: ['plan'],
+    },
+  },
+  {
+    name: 'apply_patch',
+    description:
+      'Apply previously generated patches to the filesystem. ' +
+      'IMPORTANT: The human user MUST review the patches and set approved=true explicitly. ' +
+      'Files are backed up to .codemem/backups/ before being overwritten. ' +
+      'Never call this without explicit user confirmation.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        patches: {
+          type: 'array',
+          description: 'Array of { file, content } objects from generate_patch',
+          items: {
+            type: 'object',
+            properties: {
+              file: { type: 'string' },
+              content: { type: 'string' },
+            },
+            required: ['file', 'content'],
+          },
+        },
+        approved: {
+          type: 'boolean',
+          description: 'Must be true — set only after the human user has reviewed and approved the patches',
+        },
+      },
+      required: ['patches', 'approved'],
+    },
+  },
 ];
 
 // ─── Handlers ─────────────────────────────────────────────────────────────────
@@ -98,7 +186,7 @@ function handleInitialize(id: string | number | null): JsonRpcResponse {
     },
     serverInfo: {
       name: 'codemem',
-      version: getPackageVersion(),
+      version: runtimeConfig.version,
     },
   });
 }
@@ -118,67 +206,77 @@ async function handleToolsCall(request: JsonRpcRequest): Promise<JsonRpcResponse
   const name = String(params['name'] ?? '');
   const args = params['arguments'];
 
-  if (name !== 'search_codebase') {
-    return err(id, -32601, `Unknown tool: ${name}`);
-  }
+  const port = runtimeConfig.port;
 
   if (!args || typeof args !== 'object') {
     return err(id, -32602, 'Missing arguments object');
   }
 
-  const query = String((args as Record<string, unknown>)['query'] ?? '').trim();
-  if (!query) {
-    return err(id, -32602, 'Required argument missing: query');
+  const argsMap = args as Record<string, unknown>;
+
+  if (name === 'search_codebase') {
+    const query = String(argsMap['query'] ?? '').trim();
+    if (!query) return err(id, -32602, 'Required argument missing: query');
+
+    const topKRaw = argsMap['top_k'];
+    const topK = typeof topKRaw === 'number' && Number.isFinite(topKRaw)
+      ? Math.min(Math.max(1, topKRaw), 12)
+      : 6;
+
+    const start = Date.now();
+    try {
+      const result: QueryResult = await searchCodebaseTool(query, port, topK);
+      const ms = Date.now() - start;
+      log(`search_codebase query="${query.slice(0, 80)}" top_k=${topK} port=${port} ${ms}ms`);
+      return ok(id, {
+        content: [{ type: 'text', text: result.context.assembled_text }],
+        _meta: { chunks_returned: result.context.chunks.length, token_count: result.context.token_count, query_ms: ms },
+      });
+    } catch (e) {
+      return handleSidecarError(e, port, id);
+    }
   }
 
-  const topKRaw = (args as Record<string, unknown>)['top_k'];
-  const topK = typeof topKRaw === 'number' && Number.isFinite(topKRaw)
-    ? Math.min(Math.max(1, topKRaw), 12)
-    : 6;
+  if (name === 'plan_change' || name === 'generate_patch' || name === 'apply_patch') {
+    // Forward to the HTTP sidecar agent routes
+    const routeMap: Record<string, string> = {
+      plan_change: '/api/v1/plan',
+      generate_patch: '/api/v1/patch',
+      apply_patch: '/api/v1/apply',
+    };
+    const route = routeMap[name];
 
-  const port = Number(process.env['CODEMEM_PORT'] ?? '8432');
-  const start = Date.now();
-
-  try {
-    const result: QueryResult = await searchCodebaseTool(query, port, topK);
-    const ms = Date.now() - start;
-
-    log(`search_codebase query="${query.slice(0, 80)}" top_k=${topK} port=${port} ${ms}ms`);
-
-    const assembled = result.context.assembled_text;
-    const chunks = result.context.chunks.length;
-    const tokens = result.context.token_count;
-
-    return ok(id, {
-      content: [
-        {
-          type: 'text',
-          text: assembled,
-        },
-      ],
-      // Extra metadata helpful for debugging (ignored by most clients)
-      _meta: { chunks_returned: chunks, token_count: tokens, query_ms: ms },
-    });
-  } catch (e) {
-    const message = e instanceof Error ? e.message : String(e);
-    log(`search_codebase error: ${message}`);
-
-    // Return a graceful error message as content (not a protocol error)
-    // so the AI can understand and explain the failure to the user
-    if (message.includes('ECONNREFUSED') || message.includes('fetch failed')) {
-      return ok(id, {
-        content: [
-          {
-            type: 'text',
-            text: `CodeMem sidecar is not running on port ${port}. ` +
-                  `Please start it with: codemem start`,
-          },
-        ],
-      });
+    // Remap argument keys to what the HTTP route expects
+    let body: Record<string, unknown> = {};
+    if (name === 'plan_change') {
+      body = { query: argsMap['query'], top_k: argsMap['top_k'] ?? 8 };
+    } else if (name === 'generate_patch') {
+      body = { plan: argsMap['plan'], top_k: argsMap['top_k'] ?? 8 };
+    } else {
+      body = { patches: argsMap['patches'], approved: argsMap['approved'] };
     }
 
-    return err(id, -32000, `Tool execution failed: ${message}`);
+    try {
+      const res = await fetch(`http://localhost:${port}${route}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(120_000),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        const msg = (data as { message?: string }).message ?? JSON.stringify(data);
+        return err(id, -32000, `${name} failed (${res.status}): ${msg}`);
+      }
+      return ok(id, {
+        content: [{ type: 'text', text: JSON.stringify(data, null, 2) }],
+      });
+    } catch (e) {
+      return handleSidecarError(e, port, id);
+    }
   }
+
+  return err(id, -32601, `Unknown tool: ${name}`);
 }
 
 // ─── Request router ───────────────────────────────────────────────────────────
@@ -245,7 +343,7 @@ async function handleRequest(raw: string): Promise<void> {
 
 // ─── STDIO transport ──────────────────────────────────────────────────────────
 
-log(`Starting MCP server (port=${process.env['CODEMEM_PORT'] ?? '8432'})`);
+log(`Starting MCP server v${runtimeConfig.version} (port=${runtimeConfig.port})`);
 
 let buffer = '';
 process.stdin.setEncoding('utf8');

@@ -362,7 +362,11 @@ export async function runAgentLoop(
 
 // ─── System prompt ────────────────────────────────────────────────────────────
 
-export function buildSystemPrompt(projectSummary: string): string {
+export function buildSystemPrompt(projectSummary: string, outputMode: 'context' | 'patch' = 'context'): string {
+  const patchSuffix = outputMode === 'patch'
+    ? '\n- When asked to make changes, output the COMPLETE updated file content for each changed file. Format as:\n  File: <relative/path>\n  ```\n  // full file content\n  ```'
+    : '';
+
   return `You are an expert software engineer with full access to this project's codebase.
 
 Project: ${projectSummary}
@@ -376,7 +380,7 @@ RULES:
 - Call search_codebase multiple times with different queries if needed.
 - Reference exact file paths and function names found in search results.
 - When suggesting code changes, show the full modified function/block.
-- Be concise but complete. No filler text.`;
+- Be concise but complete. No filler text.${patchSuffix}`;
 }
 
 // ─── Streaming API ────────────────────────────────────────────────────────────

@@ -75,6 +75,15 @@ export function buildStructuredContext(
     ...fileGroups.map(g => `- ${g.filePath} → ${g.purpose}`),
     '',
   ];
+
+  // Key Functions: compact list of function signatures for planning/patching context
+  const keyFunctions = buildKeyFunctions(chunks);
+  if (keyFunctions.length > 0) {
+    headerLines.push('### Key Functions:');
+    headerLines.push(...keyFunctions);
+    headerLines.push('');
+  }
+
   if (flow) {
     headerLines.push('### Flow:', flow, '');
   }
@@ -165,6 +174,37 @@ function fileRank(fp: string): number {
   if (lower.endsWith('.ts') || lower.endsWith('.tsx')) return 3;
   if (lower.endsWith('.js') || lower.endsWith('.jsx')) return 2;
   return 1;
+}
+
+// ─── Key Functions ────────────────────────────────────────────────────────────
+
+/**
+ * Build a compact list of function signatures from the top chunks.
+ * e.g. "- validateUser(email, password) [src/auth/login.ts:12] → db.findOne, bcrypt.compare"
+ * Helps the AI planner quickly see what's available without reading all code.
+ */
+function buildKeyFunctions(chunks: RankedChunk[]): string[] {
+  const lines: string[] = [];
+  const seen = new Set<string>();
+
+  for (const c of chunks) {
+    const name = c.header.name;
+    if (!name || seen.has(name)) continue;
+    seen.add(name);
+
+    const params = c.header.params && c.header.params.length > 0
+      ? c.header.params.join(', ')
+      : '';
+    const loc = `${c.header.file_path}:${c.metadata.start_line}`;
+    const calls = c.header.calls.slice(0, 4).join(', ');
+    const callSuffix = calls ? ` → ${calls}` : '';
+
+    lines.push(`- ${name}(${params}) [${loc}]${callSuffix}`);
+
+    if (lines.length >= 12) break; // cap to avoid bloating context
+  }
+
+  return lines;
 }
 
 // ─── Flow detection ───────────────────────────────────────────────────────────

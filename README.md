@@ -3,7 +3,7 @@
 > **AI-agnostic local memory layer for codebases.**
 > Index once, remember forever, switch AI freely.
 
-**Status:** `v1.0.1` — Early release. Core is stable and working. Active development.
+**Status:** `v0.25.0` — Stable core with new agentic plan→patch→apply pipeline. Active development.
 
 CodeMem runs as a local sidecar and gives any AI assistant a persistent, semantic memory of your codebase without sending your source code to the cloud. Use it from the CLI, from HTTP, or as an MCP tool bridge for Claude Desktop / Cursor.
 
@@ -206,6 +206,49 @@ codemem ask "summarize the authentication flow" --provider openai
 
 This works with OpenAI-compatible gateways such as OpenRouter and similar web-based AI services.
 
+### `codemem plan <query>`
+
+Generate a step-by-step implementation plan for a code change. Saves the plan to `.codemem/last-plan.json` for use with `codemem apply`.
+
+Requires the sidecar to be running and an AI API key (`OPENAI_API_KEY` or `ANTHROPIC_API_KEY`).
+
+```bash
+codemem plan "add JWT validation to the login route"
+codemem plan "refactor the database layer to use connection pooling" --provider anthropic
+codemem plan "add error handling to all API routes" --top 10
+```
+
+### `codemem apply`
+
+Load the plan from `.codemem/last-plan.json`, generate complete file patches, show a diff preview, and apply them after your confirmation.
+
+```bash
+codemem apply
+codemem apply --validate          # run build/tests after applying
+codemem apply --provider openai   # override AI provider
+```
+
+The command will:
+1. Show the saved plan summary
+2. Generate complete updated file contents
+3. Display a line-level diff preview per file
+4. Prompt `Apply? [y/N]` — no files are written until you say `y`
+5. Back up originals to `.codemem/backups/<timestamp>/` before overwriting
+6. Optionally run `npm run build` and `npm test` to verify the changes
+
+### `codemem ask <query>` (updated)
+
+The `ask` command now supports `--output=patch` to instruct the AI to return complete updated files instead of an explanation.
+
+```bash
+codemem ask "fix the authentication bug" --output patch
+codemem ask "add input validation to the signup endpoint" --output patch --stream
+```
+
+Output modes:
+- `context` (default) — explanation and code snippets
+- `patch` — complete updated file contents ready to copy-paste
+
 ### `codemem mcp`
 
 Start the MCP JSON-RPC bridge for Claude Desktop / Cursor style tools.
@@ -270,7 +313,14 @@ If you use a custom port, replace `8432` with the port passed to `codemem start 
 
 `codemem mcp` starts a JSON-RPC tool bridge over stdin/stdout.
 
-It exposes the `search_codebase` tool for local semantic code search and forwards requests to the HTTP sidecar.
+It exposes four tools for local code intelligence:
+
+| Tool | Description |
+|------|-------------|
+| `search_codebase` | Semantic search — always call before answering code questions |
+| `plan_change` | Generate a step-by-step implementation plan |
+| `generate_patch` | Generate complete updated file contents based on a plan |
+| `apply_patch` | Apply patches to disk — requires `approved: true` from the user |
 
 Use `CODEMEM_PORT` to point the MCP bridge at a custom sidecar port.
 
@@ -279,6 +329,58 @@ CODEMEM_PORT=9000 codemem mcp
 ```
 
 This is useful for AI applications that support local tool integration via Claude Desktop, Cursor, or other JSON-RPC tool runners.
+
+---
+
+## Agent HTTP API
+
+The sidecar also exposes agent endpoints for programmatic use.
+
+### `POST /api/v1/plan`
+
+Generate an implementation plan.
+
+```bash
+curl -X POST http://localhost:8432/api/v1/plan \
+  -H "Content-Type: application/json" \
+  -d '{"query":"add rate limiting to the API","top_k":8}'
+```
+
+Returns `{ query, summary, steps: [{ file, action, description }] }`.
+
+### `POST /api/v1/patch`
+
+Generate file patches from a plan.
+
+```bash
+curl -X POST http://localhost:8432/api/v1/patch \
+  -H "Content-Type: application/json" \
+  -d '{"plan":{...}}'
+```
+
+Returns `{ description, patches: [{ file, content }], preview }`.
+
+### `POST /api/v1/validate`
+
+Run the project's build and test scripts.
+
+```bash
+curl -X POST http://localhost:8432/api/v1/validate
+```
+
+Returns `{ success, ran, errors, duration_ms }`.
+
+### `POST /api/v1/apply`
+
+Apply patches. **`approved` must be `true`** — never set this without user review.
+
+```bash
+curl -X POST http://localhost:8432/api/v1/apply \
+  -H "Content-Type: application/json" \
+  -d '{"patches":[{"file":"src/api.ts","content":"..."}],"approved":true}'
+```
+
+Returns `{ applied, backups, backupDir }`. Original files are saved to `.codemem/backups/` before overwriting.
 
 ---
 

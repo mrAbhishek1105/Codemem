@@ -91,6 +91,7 @@ program
   .option('-n, --top <n>', 'Chunks retrieved per search call', '6')
   .option('-s, --stream', 'Stream response tokens in real-time')
   .option('--no-terminal', 'Disable run_terminal tool in agent mode')
+  .option('--output <mode>', 'Output mode: context (default) | patch (full file replacements)', 'context')
   .action(async (query, opts) => {
     const { runAsk } = await import('./cli/commands/ask.js');
     await runAsk(query, {
@@ -101,6 +102,7 @@ program
       top: parseInt(String(opts.top ?? '6'), 10),
       stream: Boolean(opts.stream),
       noTerminal: opts.terminal === false,
+      output: opts.output as string,
     }).catch(handleError);
   });
 
@@ -125,6 +127,40 @@ program
       stream: Boolean(opts.stream),
       noContext: opts.context === false,
       maxHistory: parseInt(String(opts.maxHistory ?? '10'), 10),
+    }).catch(handleError);
+  });
+
+// ── codemem plan ─────────────────────────────────────────────────────────────
+program
+  .command('plan <query>')
+  .description('Generate a step-by-step implementation plan for a code change')
+  .option('-p, --provider <name>', 'AI provider: openai | anthropic  (auto from env)')
+  .option('-m, --model <name>', 'Model override  (e.g. gpt-4o, claude-opus-4-6)')
+  .option('-n, --top <n>', 'Context chunks to retrieve', '8')
+  .action(async (query, opts) => {
+    const { runPlan } = await import('./cli/commands/plan.js');
+    await runPlan(query, {
+      provider: opts.provider as string | undefined,
+      model: opts.model as string | undefined,
+      top: parseInt(String(opts.top ?? '8'), 10),
+    }).catch(handleError);
+  });
+
+// ── codemem apply ─────────────────────────────────────────────────────────────
+program
+  .command('apply')
+  .description('Generate patches from the last plan and apply them after confirmation')
+  .option('-p, --provider <name>', 'AI provider: openai | anthropic  (auto from env)')
+  .option('-m, --model <name>', 'Model override  (e.g. gpt-4o, claude-opus-4-6)')
+  .option('-n, --top <n>', 'Context chunks to retrieve', '8')
+  .option('--validate', 'Run build/tests after applying patches')
+  .action(async (opts) => {
+    const { runApply } = await import('./cli/commands/apply.js');
+    await runApply({
+      provider: opts.provider as string | undefined,
+      model: opts.model as string | undefined,
+      top: parseInt(String(opts.top ?? '8'), 10),
+      validate: Boolean(opts.validate),
     }).catch(handleError);
   });
 
