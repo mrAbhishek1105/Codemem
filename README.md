@@ -3,7 +3,7 @@
 > **AI-agnostic local memory layer for codebases.**
 > Index once, remember forever, switch AI freely.
 
-**Status:** `v0.25.0` — Stable core with new agentic plan→patch→apply pipeline. Active development.
+**Status:** `v0.26.0` — Stable core with new agentic plan→patch→apply pipeline. Active development.
 
 CodeMem runs as a local sidecar and gives any AI assistant a persistent, semantic memory of your codebase without sending your source code to the cloud. Use it from the CLI, from HTTP, or as an MCP tool bridge for Claude Desktop / Cursor.
 

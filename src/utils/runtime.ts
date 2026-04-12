@@ -3,7 +3,7 @@ import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const FALLBACK_VERSION = '0.25.0';
+const FALLBACK_VERSION = '0.26.0';
 
 let cachedVersion: string | null = null;
 

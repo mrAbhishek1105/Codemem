@@ -1,6 +1,6 @@
 {
   "name": "@mrabhishek1105/codemem",
-  "version": "0.25.0",
+  "version": "0.26.0",
   "description": "AI-agnostic local memory layer for codebases. Index once, remember forever, switch AI freely.",
   "type": "module",
   "author": {
