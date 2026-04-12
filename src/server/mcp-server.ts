@@ -17,6 +17,7 @@
 
 import { searchCodebaseTool } from '../core/ai-agent.js';
 import { QueryResult } from '../types/query.js';
+import { getPackageVersion } from '../utils/runtime.js';
 
 // ─── JSON-RPC types ───────────────────────────────────────────────────────────
 
@@ -97,7 +98,7 @@ function handleInitialize(id: string | number | null): JsonRpcResponse {
     },
     serverInfo: {
       name: 'codemem',
-      version: '0.25.0',
+      version: getPackageVersion(),
     },
   });
 }

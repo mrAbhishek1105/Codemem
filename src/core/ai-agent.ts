@@ -14,6 +14,7 @@
 
 import { logger } from '../utils/logger.js';
 import { QueryResult } from '../types/query.js';
+import { resolveServerPort } from '../utils/runtime.js';
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
@@ -276,7 +277,7 @@ export async function callAI(
 
 export async function searchCodebaseTool(
   query: string,
-  port = 8432,
+  port = resolveServerPort(undefined),
   top_k = 6,
 ): Promise<QueryResult> {
   const res = await fetch(`http://localhost:${port}/api/v1/query`, {

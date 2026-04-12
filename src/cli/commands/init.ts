@@ -9,8 +9,9 @@ import { Indexer } from '../../core/indexer.js';
 import { analyzeProject, buildProjectSummary } from '../../core/project-analyzer.js';
 import { logger } from '../../utils/logger.js';
 import { IndexProgress } from '../../core/indexer.js';
+import { getPackageVersion } from '../../utils/runtime.js';
 
-const VERSION = '0.1.0';
+const VERSION = getPackageVersion();
 
 const DEFAULT_CODEMEMIGNORE = `# CodeMem ignore file
 # Inherits all .gitignore patterns automatically.

@@ -2,6 +2,7 @@ import { resolve } from 'path';
 import { ui } from '../ui.js';
 import { ConfigStore } from '../../storage/config-store.js';
 import { MetaStore } from '../../storage/meta-store.js';
+import { resolveServerPort } from '../../utils/runtime.js';
 
 export async function runStatus(): Promise<void> {
   const projectRoot = resolve(process.cwd());
@@ -13,13 +14,14 @@ export async function runStatus(): Promise<void> {
   }
 
   const config = configStore.read();
+  const port = resolveServerPort(config.server.port);
   const meta = new MetaStore(projectRoot);
   const stats = meta.getStats();
 
   // Check if server is running by hitting health endpoint
   let serverRunning = false;
   try {
-    const res = await fetch(`http://localhost:${config.server.port}/api/v1/health`, {
+    const res = await fetch(`http://localhost:${port}/api/v1/health`, {
       signal: AbortSignal.timeout(1000),
     });
     serverRunning = res.ok;

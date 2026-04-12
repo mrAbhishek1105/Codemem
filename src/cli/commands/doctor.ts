@@ -18,6 +18,7 @@ import { homedir } from 'os';
 import chalk from 'chalk';
 import { ui } from '../ui.js';
 import { ConfigStore } from '../../storage/config-store.js';
+import { resolveServerPort } from '../../utils/runtime.js';
 
 interface Check {
   label: string;
@@ -173,10 +174,10 @@ export async function runDoctor(): Promise<void> {
   }
 
   // ── CHECK 4: Sidecar running ──────────────────────────────────────────────
-  let port = 8432;
+  let port = resolveServerPort(undefined);
   try {
     const configStore = new ConfigStore(projectRoot);
-    if (configStore.exists()) port = configStore.read().server.port;
+    if (configStore.exists()) port = resolveServerPort(configStore.read().server.port);
   } catch {}
 
   try {

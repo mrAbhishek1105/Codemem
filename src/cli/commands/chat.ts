@@ -30,6 +30,7 @@ import {
   AIMessage,
 } from '../../core/ai-agent.js';
 import { resolveAIConfig } from '../../utils/ai-config.js';
+import { resolveServerPort } from '../../utils/runtime.js';
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -70,7 +71,7 @@ export async function runChat(options: ChatOptions): Promise<void> {
   }
 
   const config = configStore.read();
-  const port = config.server.port;
+  const port = resolveServerPort(config.server.port);
   const historyPath = join(projectRoot, '.codemem', 'chat.json');
 
   const aiConfig = resolveAIConfig(options);

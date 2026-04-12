@@ -9,6 +9,7 @@ import { Indexer } from '../../core/indexer.js';
 import { FileWatcher } from '../../core/file-watcher.js';
 import { HttpServer } from '../../server/http-server.js';
 import { logger } from '../../utils/logger.js';
+import { getPackageVersion } from '../../utils/runtime.js';
 
 export async function runStart(options: { debug?: boolean; port?: number }): Promise<void> {
   const projectRoot = resolve(process.cwd());
@@ -26,7 +27,7 @@ export async function runStart(options: { debug?: boolean; port?: number }): Pro
   const port = options.port ?? config.server.port;
   const metaStore = new MetaStore(projectRoot);
 
-  ui.banner('0.1.0');
+  ui.banner(getPackageVersion());
   ui.info(`Starting sidecar for: ${projectRoot}`);
   ui.blank();
 

@@ -1,3 +1,5 @@
+import { getPackageVersion } from '../utils/runtime.js';
+
 export interface IndexingConfig {
   auto_index: boolean;
   debounce_ms: number;
@@ -45,7 +47,7 @@ export interface CodeMemConfig {
 }
 
 export const DEFAULT_CONFIG: Omit<CodeMemConfig, 'project'> = {
-  version: '0.1.0',
+  version: getPackageVersion(),
   schema_version: 1,
   indexing: {
     auto_index: true,

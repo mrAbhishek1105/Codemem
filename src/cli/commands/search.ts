@@ -1,6 +1,7 @@
 import { resolve } from 'path';
 import { ui } from '../ui.js';
 import { ConfigStore } from '../../storage/config-store.js';
+import { resolveServerPort } from '../../utils/runtime.js';
 
 export async function runSearch(query: string, options: { top?: number }): Promise<void> {
   const projectRoot = resolve(process.cwd());
@@ -12,7 +13,7 @@ export async function runSearch(query: string, options: { top?: number }): Promi
   }
 
   const config = configStore.read();
-  const port = config.server.port;
+  const port = resolveServerPort(config.server.port);
 
   const spinner = ui.spinner(`Searching for: "${query}"...`).start();
 

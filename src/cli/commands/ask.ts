@@ -30,6 +30,7 @@ import {
   AIMessage,
 } from '../../core/ai-agent.js';
 import { resolveAIConfig } from '../../utils/ai-config.js';
+import { resolveServerPort } from '../../utils/runtime.js';
 
 const execAsync = promisify(exec);
 
@@ -55,7 +56,7 @@ export async function runAsk(query: string, options: AskOptions): Promise<void> 
   }
 
   const config = configStore.read();
-  const port = config.server.port;
+  const port = resolveServerPort(config.server.port);
 
   const aiConfig = resolveAIConfig(options);
   if (!aiConfig) {

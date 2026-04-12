@@ -1,19 +1,7 @@
 import { Command } from 'commander';
-import { readFileSync, existsSync } from 'fs';
-import { join, dirname } from 'path';
-import { fileURLToPath } from 'url';
+import { getPackageVersion } from './utils/runtime.js';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-
-// Read version from package.json
-let VERSION = '0.25.0';
-try {
-  const pkgPath = join(__dirname, '..', 'package.json');
-  if (existsSync(pkgPath)) {
-    const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8')) as { version: string };
-    VERSION = pkg.version;
-  }
-} catch {}
+const VERSION = getPackageVersion();
 
 const program = new Command();
 
